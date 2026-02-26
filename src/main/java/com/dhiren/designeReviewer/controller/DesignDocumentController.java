@@ -1,5 +1,6 @@
 package com.dhiren.designeReviewer.controller;
 
+import com.dhiren.designeReviewer.dto.AskQuestionRequest;
 import com.dhiren.designeReviewer.dto.CreateDocumentRequest;
 import com.dhiren.designeReviewer.dto.DocumentResponse;
 import com.dhiren.designeReviewer.model.DesignDocument;
@@ -51,5 +52,10 @@ public class DesignDocumentController {
         DesignDocument document= service.getDocumentById(id);
 
         return new DocumentResponse(document.getTitle(), document.getId(), document.getContent());
+    }
+
+    @PostMapping("/{id}/ask")
+    public String askQuestion(@PathVariable Long id,@RequestBody AskQuestionRequest request){
+        return service.askQuestion(id,request.getQuestion());
     }
 }
