@@ -17,15 +17,20 @@ public class OllamaLlmClient implements LlmClient {
     public String askQuestion(String context, String question) {
 
         String prompt = """
-                You are a senior system design expert.
-                Use the following context to answer the question.
-
-                Context:
-                %s
-
-                Question:
-                %s
-                """.formatted(context, question);
+            You are a senior system design reviewer.
+            
+            Use ONLY the provided context to answer the question.
+            If the answer is not present in the context, say:
+            "Not found in document."
+            
+            For every statement, cite the chunk number in brackets.
+            
+            Context:
+            %s
+            
+            Question:
+            %s
+            """.formatted(context, question);
 
         return chatClient.prompt()
                 .user(prompt)

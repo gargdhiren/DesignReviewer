@@ -1,5 +1,6 @@
 package com.dhiren.designeReviewer.service;
 
+import com.dhiren.designeReviewer.dto.AnswerResponse;
 import com.dhiren.designeReviewer.llm.LlmClient;
 import com.dhiren.designeReviewer.model.DesignDocument;
 import com.dhiren.designeReviewer.model.DocumentChunk;
@@ -15,13 +16,18 @@ public class DesignDocumentService {
     private final DocumentChunkRepository chunkRepository;
     private final TextChunkingService chunkingService;
     private final LlmClient llmClient;
-    private static final int TOP_K = 3;
+    private final InMemoryVectorStore vectorStore;
+    private final EmbeddingService embeddingService;
+    private final VectorSearchService vectorSearchService;
 
-    public DesignDocumentService(DesignDocumentRepository repository,DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient) {
+    public DesignDocumentService(DesignDocumentRepository repository,DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient, InMemoryVectorStore vectorStore, EmbeddingService embeddingService,VectorSearchService vectorSearchService) {
         this.repository = repository;
         this.llmClient = llmClient;
         this.chunkRepository = chunkRepository;
         this.chunkingService = chunkingService;
+        this.vectorStore = vectorStore;
+        this.embeddingService = embeddingService;
+        this.vectorSearchService=vectorSearchService;
     }
 
     public DesignDocument createDocument(String title,String content){
@@ -29,10 +35,14 @@ public class DesignDocumentService {
 
         List<String> chunks=chunkingService.chunkText(content);
 
-        for (String chunk : chunks) {
-            chunkRepository.save(
-                    new DocumentChunk(designDocument.getId(), chunk)
+        for (String chunkText : chunks) {
+            DocumentChunk chunk = chunkRepository.save(
+                    new DocumentChunk(designDocument.getId(), chunkText)
             );
+
+            List<Double> vector=embeddingService.embed(chunkText);
+
+            vectorStore.store(chunk.getId(), vector);
         }
 
         return designDocument;
@@ -46,50 +56,24 @@ public class DesignDocumentService {
         return repository.findById(id).orElseThrow(()-> new RuntimeException("Document with id: "+id+" not found"));
     }
 
-    public String askQuestion(Long documentId, String question) {
-
-        List<DocumentChunk> relevantChunks =
-                getRelevantChunks(documentId, question);
-
-        String combinedContext = relevantChunks.stream()
-                .map(DocumentChunk::getContent)
-                .reduce("", (a, b) -> a + "\n\n" + b);
-
-        return llmClient.askQuestion(combinedContext, question);
-    }
-
-    private List<DocumentChunk> getRelevantChunks(Long documentId, String question) {
-
+    public AnswerResponse askQuestion(Long documentId, String question) {
         List<DocumentChunk> chunks =
                 chunkRepository.findByDocumentId(documentId);
 
-        return chunks.stream()
-                .sorted((c1, c2) ->
-                        Integer.compare(
-                                score(c2.getContent(), question),
-                                score(c1.getContent(), question)
-                        )
-                )
-                .limit(TOP_K)
+        List<Long> chunkIds = chunks.stream()
+                .map(DocumentChunk::getId)
                 .toList();
-    }
 
-    private int score(String chunk, String question){
-        int score=0;
+        List<Long> topChunkIds =
+                vectorSearchService.search(chunkIds, question);
 
-        String normalizedChunk = this.normalize(chunk);
-        String[] questionWords = this.normalize(question).split("\\s+");
+        String context = chunks.stream()
+                .filter(c -> topChunkIds.contains(c.getId()))
+                .map(DocumentChunk::getContent)
+                .reduce("", (a, b) -> a + "\n\n" + b);
 
-        for (String word : questionWords) {
-            if (word.length() > 3 && normalizedChunk.contains(word)) {
-                score++;
-            }
-        }
+        String answer= llmClient.askQuestion(context, question);
 
-        return score;
-    }
-
-    private String normalize(String text){
-        return text.toLowerCase().replaceAll("[^a-z0-9\\s]","").trim();
+        return new AnswerResponse(answer,topChunkIds);
     }
 }
