@@ -2,11 +2,16 @@ package com.dhiren.designeReviewer.service;
 
 import com.dhiren.designeReviewer.dto.AnswerResponse;
 import com.dhiren.designeReviewer.llm.LlmClient;
+import com.dhiren.designeReviewer.model.ChatMessage;
+import com.dhiren.designeReviewer.model.ChatSession;
 import com.dhiren.designeReviewer.model.DesignDocument;
 import com.dhiren.designeReviewer.model.DocumentChunk;
+import com.dhiren.designeReviewer.repository.ChatMessageRepository;
+import com.dhiren.designeReviewer.repository.ChatSessionRepository;
 import com.dhiren.designeReviewer.repository.DesignDocumentRepository;
 import com.dhiren.designeReviewer.repository.DocumentChunkRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -16,18 +21,22 @@ public class DesignDocumentService {
     private final DocumentChunkRepository chunkRepository;
     private final TextChunkingService chunkingService;
     private final LlmClient llmClient;
-    private final InMemoryVectorStore vectorStore;
     private final EmbeddingService embeddingService;
     private final VectorSearchService vectorSearchService;
+    private final ChatMessageRepository chatMessageRepository;
+    private final ChatSessionRepository chatSessionRepository;
+    private final EmbeddingConverter embeddingConverter;
 
-    public DesignDocumentService(DesignDocumentRepository repository,DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient, InMemoryVectorStore vectorStore, EmbeddingService embeddingService,VectorSearchService vectorSearchService) {
+    public DesignDocumentService(DesignDocumentRepository repository,DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient, EmbeddingService embeddingService,VectorSearchService vectorSearchService,ChatMessageRepository chatMessageRepository,ChatSessionRepository chatSessionRepository, EmbeddingConverter embeddingConverter) {
         this.repository = repository;
         this.llmClient = llmClient;
         this.chunkRepository = chunkRepository;
         this.chunkingService = chunkingService;
-        this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
         this.vectorSearchService=vectorSearchService;
+        this.chatMessageRepository=chatMessageRepository;
+        this.chatSessionRepository=chatSessionRepository;
+        this.embeddingConverter=embeddingConverter;
     }
 
     public DesignDocument createDocument(String title,String content){
@@ -36,13 +45,20 @@ public class DesignDocumentService {
         List<String> chunks=chunkingService.chunkText(content);
 
         for (String chunkText : chunks) {
-            DocumentChunk chunk = chunkRepository.save(
-                    new DocumentChunk(designDocument.getId(), chunkText)
-            );
-
             List<Double> vector=embeddingService.embed(chunkText);
 
-            vectorStore.store(chunk.getId(), vector);
+            String embeddingJson =
+                    embeddingConverter.toJson(vector);
+
+            DocumentChunk chunk = new DocumentChunk(
+                    designDocument.getId(),
+                    chunkText
+            );
+
+            chunk.setEmbedding(embeddingJson);
+
+            // 4️⃣ Save chunk (embedding stored in DB)
+            chunkRepository.save(chunk);
         }
 
         return designDocument;
@@ -56,7 +72,28 @@ public class DesignDocumentService {
         return repository.findById(id).orElseThrow(()-> new RuntimeException("Document with id: "+id+" not found"));
     }
 
-    public AnswerResponse askQuestion(Long documentId, String question) {
+    @Transactional
+    public AnswerResponse askQuestion(Long documentId,
+                                      String question,
+                                      Long sessionId) {
+
+        ChatSession session;
+
+        if (sessionId == null) {
+            session = chatSessionRepository.save(
+                    new ChatSession(documentId)
+            );
+        } else {
+            session = chatSessionRepository.findById(sessionId)
+                    .orElseThrow();
+        }
+
+        // Save user message
+        chatMessageRepository.save(
+                new ChatMessage(session.getId(), "USER", question)
+        );
+
+        // Retrieve context using vector search
         List<DocumentChunk> chunks =
                 chunkRepository.findByDocumentId(documentId);
 
@@ -65,15 +102,20 @@ public class DesignDocumentService {
                 .toList();
 
         List<Long> topChunkIds =
-                vectorSearchService.search(chunkIds, question);
+                vectorSearchService.search(chunks, question);
 
         String context = chunks.stream()
                 .filter(c -> topChunkIds.contains(c.getId()))
-                .map(DocumentChunk::getContent)
+                .map(c -> "[Chunk " + c.getId() + "]\n" + c.getContent())
                 .reduce("", (a, b) -> a + "\n\n" + b);
 
-        String answer= llmClient.askQuestion(context, question);
+        String answer = llmClient.askQuestion(context, question);
 
-        return new AnswerResponse(answer,topChunkIds);
+        // Save assistant message
+        chatMessageRepository.save(
+                new ChatMessage(session.getId(), "ASSISTANT", answer)
+        );
+
+        return new AnswerResponse(answer, topChunkIds,session.getId());
     }
 }

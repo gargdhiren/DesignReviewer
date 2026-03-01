@@ -15,6 +15,9 @@ public class DocumentChunk {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(columnDefinition = "TEXT")
+    private String embedding;
+
     public DocumentChunk(){}
 
     public DocumentChunk(Long documentId, String content) {
@@ -44,5 +47,13 @@ public class DocumentChunk {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public String getEmbedding() {
+        return embedding;
+    }
+
+    public void setEmbedding(String embedding) {
+        this.embedding = embedding;
     }
 }

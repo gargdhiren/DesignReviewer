@@ -1,10 +1,8 @@
 package com.dhiren.designeReviewer.controller;
 
-import com.dhiren.designeReviewer.dto.AnswerResponse;
-import com.dhiren.designeReviewer.dto.AskQuestionRequest;
-import com.dhiren.designeReviewer.dto.CreateDocumentRequest;
-import com.dhiren.designeReviewer.dto.DocumentResponse;
+import com.dhiren.designeReviewer.dto.*;
 import com.dhiren.designeReviewer.model.DesignDocument;
+import com.dhiren.designeReviewer.service.ChatService;
 import com.dhiren.designeReviewer.service.DesignDocumentService;
 import com.dhiren.designeReviewer.service.FileParsingService;
 import org.springframework.web.bind.annotation.*;
@@ -18,9 +16,11 @@ import java.util.stream.Collectors;
 public class DesignDocumentController {
     private final DesignDocumentService service;
     private final FileParsingService fileParsingService;
+    private final ChatService chatService;
 
-    public DesignDocumentController(DesignDocumentService service, FileParsingService fileParsingService) {
+    public DesignDocumentController(DesignDocumentService service, FileParsingService fileParsingService, ChatService chatService) {
         this.service=service;
+        this.chatService=chatService;
         this.fileParsingService=fileParsingService;
     }
 
@@ -61,7 +61,32 @@ public class DesignDocumentController {
 
     @PostMapping("/{id}/ask")
     public AnswerResponse askQuestion(@PathVariable Long id, @RequestBody AskQuestionRequest request){
-        return service.askQuestion(id,request.getQuestion());
+        return service.askQuestion(id,request.getQuestion(),request.getSessionId());
+    }
+
+    @GetMapping("/{documentId}/sessions")
+    public List<ChatSessionResponse> getSessions(@PathVariable Long documentId) {
+
+        return chatService.getSessionsByDocument(documentId)
+                .stream()
+                .map(s -> new ChatSessionResponse(
+                        s.getId(),
+                        s.getCreatedAt()
+                ))
+                .toList();
+    }
+
+    @GetMapping("/sessions/{sessionId}")
+    public List<ChatMessageResponse> getMessages(@PathVariable Long sessionId) {
+
+        return chatService.getMessagesBySession(sessionId)
+                .stream()
+                .map(m -> new ChatMessageResponse(
+                        m.getRole(),
+                        m.getContent(),
+                        m.getCreatedAt()
+                ))
+                .toList();
     }
 
     @PostMapping(value="/upload", consumes ="multipart/form-data")
