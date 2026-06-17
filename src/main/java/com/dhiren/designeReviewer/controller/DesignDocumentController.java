@@ -5,12 +5,16 @@ import com.dhiren.designeReviewer.model.DesignDocument;
 import com.dhiren.designeReviewer.service.ChatService;
 import com.dhiren.designeReviewer.service.DesignDocumentService;
 import com.dhiren.designeReviewer.service.FileParsingService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api/documents")
 public class DesignDocumentController {
@@ -47,16 +51,19 @@ public class DesignDocumentController {
                 .map(doc -> new DocumentResponse(
                         doc.getTitle(),
                         doc.getId(),
-                        doc.getContent()
+                        null  // don't send full content in list — too much data
                 ))
                 .collect(Collectors.toList());
     }
 
     @GetMapping("/{id}")
     public DocumentResponse getDocumentById(@PathVariable Long id){
-        DesignDocument document= service.getDocumentById(id);
-
-        return new DocumentResponse(document.getTitle(), document.getId(), document.getContent());
+        DesignDocument document = service.getDocumentById(id);
+        String content = document.getContent();
+        String preview = content != null && content.length() > 500
+                ? content.substring(0, 500) + "..."
+                : content;
+        return new DocumentResponse(document.getTitle(), document.getId(), preview);
     }
 
     @PostMapping("/{id}/ask")
@@ -95,14 +102,39 @@ public class DesignDocumentController {
             @RequestParam("title") String title) throws Exception {
 
         String content = fileParsingService.extractText(file);
+        byte[] fileData = file.getBytes();
+        String fileName = file.getOriginalFilename();
 
-        DesignDocument saved =
-                service.createDocument(title, content);
+        DesignDocument saved = service.createDocument(title, content, fileData, fileName);
 
-        return new DocumentResponse(
-                saved.getTitle(),
-                saved.getId(),
-                saved.getContent()
-        );
+        return new DocumentResponse(saved.getTitle(), saved.getId(), null);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteDocument(@PathVariable Long id) {
+        service.deleteDocument(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    public ResponseEntity<Void> deleteSession(@PathVariable Long sessionId) {
+        chatService.deleteSession(sessionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/download")
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
+        DesignDocument document = service.getDocumentById(id);
+
+        if (document.getFileData() == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String fileName = document.getFileName() != null ? document.getFileName() : "document.pdf";
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+                .body(document.getFileData());
     }
 }

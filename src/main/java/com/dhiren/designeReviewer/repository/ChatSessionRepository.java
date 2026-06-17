@@ -9,4 +9,5 @@ public interface ChatSessionRepository
         extends JpaRepository<ChatSession, Long> {
 
     List<ChatSession> findByDocumentId(Long documentId);
+    void deleteByDocumentId(Long documentId);
 }

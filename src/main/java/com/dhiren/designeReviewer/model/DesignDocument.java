@@ -13,6 +13,11 @@ public class DesignDocument {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(columnDefinition = "BYTEA")
+    private byte[] fileData;
+
+    private String fileName;
+
     public DesignDocument() {}
 
     public DesignDocument(String title, String content) {
@@ -42,5 +47,21 @@ public class DesignDocument {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public byte[] getFileData() {
+        return fileData;
+    }
+
+    public void setFileData(byte[] fileData) {
+        this.fileData = fileData;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
     }
 }

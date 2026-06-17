@@ -26,21 +26,30 @@ public class DesignDocumentService {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatSessionRepository chatSessionRepository;
     private final EmbeddingConverter embeddingConverter;
+    private final ChatService chatService;
 
-    public DesignDocumentService(DesignDocumentRepository repository,DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient, EmbeddingService embeddingService,VectorSearchService vectorSearchService,ChatMessageRepository chatMessageRepository,ChatSessionRepository chatSessionRepository, EmbeddingConverter embeddingConverter) {
+    public DesignDocumentService(DesignDocumentRepository repository, DocumentChunkRepository chunkRepository, TextChunkingService chunkingService, LlmClient llmClient, EmbeddingService embeddingService, VectorSearchService vectorSearchService, ChatMessageRepository chatMessageRepository, ChatSessionRepository chatSessionRepository, EmbeddingConverter embeddingConverter, ChatService chatService) {
         this.repository = repository;
         this.llmClient = llmClient;
         this.chunkRepository = chunkRepository;
         this.chunkingService = chunkingService;
         this.embeddingService = embeddingService;
-        this.vectorSearchService=vectorSearchService;
-        this.chatMessageRepository=chatMessageRepository;
-        this.chatSessionRepository=chatSessionRepository;
-        this.embeddingConverter=embeddingConverter;
+        this.vectorSearchService = vectorSearchService;
+        this.chatMessageRepository = chatMessageRepository;
+        this.chatSessionRepository = chatSessionRepository;
+        this.embeddingConverter = embeddingConverter;
+        this.chatService = chatService;
     }
 
-    public DesignDocument createDocument(String title,String content){
-        DesignDocument designDocument = repository.save(new DesignDocument(title,content));
+    public DesignDocument createDocument(String title, String content) {
+        return createDocument(title, content, null, null);
+    }
+
+    public DesignDocument createDocument(String title, String content, byte[] fileData, String fileName) {
+        DesignDocument designDocument = new DesignDocument(title, content);
+        designDocument.setFileData(fileData);
+        designDocument.setFileName(fileName);
+        repository.save(designDocument);
 
         List<String> chunks=chunkingService.chunkText(content);
 
@@ -70,6 +79,13 @@ public class DesignDocumentService {
 
     public DesignDocument getDocumentById(Long id){
         return repository.findById(id).orElseThrow(()-> new RuntimeException("Document with id: "+id+" not found"));
+    }
+
+    @Transactional
+    public void deleteDocument(Long id) {
+        chatService.deleteAllSessionsForDocument(id);
+        chunkRepository.deleteByDocumentId(id);
+        repository.deleteById(id);
     }
 
     @Transactional
